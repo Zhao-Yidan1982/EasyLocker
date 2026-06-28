@@ -72,4 +72,4 @@ lock -k keyfile -i infile -m 512   # 每次读取 512 KB 块进行处理（默�
 ./lock -k 1.key -i random.bin -o enc.bin # 输出到 enc.bin
 ./lock -k 1.key -i enc.bin -o dec.bin    # 再次相同操作可解密回原文
 ```
-
+本文与代码由AI生成进攻参考，
