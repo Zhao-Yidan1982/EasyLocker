@@ -8,10 +8,30 @@
 
 static const char *VERSION = "1.0.0";
 
+bool hex_to_bytes(const std::string &hex, std::vector<uint8_t> &out) {
+    if ((hex.size() & 1) != 0) return false;
+    out.clear();
+    out.reserve(hex.size() / 2);
+    for (size_t i = 0; i < hex.size(); i += 2) {
+        auto to_nibble = [](char c) -> int {
+            if (c >= '0' && c <= '9') return c - '0';
+            if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+            if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+            return -1;
+        };
+        int hi = to_nibble(hex[i]);
+        int lo = to_nibble(hex[i + 1]);
+        if (hi < 0 || lo < 0) return false;
+        out.push_back(static_cast<uint8_t>((hi << 4) | lo));
+    }
+    return true;
+}
+
 void print_usage(const char *prog) {
-    std::cout << "Usage: " << prog << " -k key_path -i input_file [-o output_file] [-v] [-f] [-p] [-m block_kb]\n";
+    std::cout << "Usage: " << prog << " (-k key_path | -x hex_key) -i input_file [-o output_file] [-v] [-f] [-p] [-m block_kb]\n";
     std::cout << "  -v            Show version and exit\n";
     std::cout << "  -k <path>     Key file path\n";
+    std::cout << "  -x <hex>      Key as a hex string (even length, case-insensitive)\n";
     std::cout << "  -i <path>     Input file to encrypt/decrypt\n";
     std::cout << "  -o <path>     Output file path (default: same directory, prefix out_)\n";
     std::cout << "  -f            Force overwrite output file if it exists\n";
@@ -21,6 +41,7 @@ void print_usage(const char *prog) {
 
 int main(int argc, char **argv) {
     std::string key_path;
+    std::string hex_key;
     std::string in_path;
     std::string out_path;
     size_t block_kb = 1024;
@@ -30,7 +51,7 @@ int main(int argc, char **argv) {
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
-        if (a == "-v") {
+        if (a == "-v") {    
             show_version = true;
         } else if (a == "-f") {
             force_overwrite = true;
@@ -39,6 +60,9 @@ int main(int argc, char **argv) {
         } else if (a == "-k") {
             if (i + 1 >= argc) { std::cerr << "Error: -k requires a path\n"; return 2; }
             key_path = argv[++i];
+        } else if (a == "-x") {
+            if (i + 1 >= argc) { std::cerr << "Error: -x requires a hex string\n"; return 2; }
+            hex_key = argv[++i];
         } else if (a == "-i") {
             if (i + 1 >= argc) { std::cerr << "Error: -i requires a path\n"; return 2; }
             in_path = argv[++i];
@@ -63,8 +87,12 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    if (key_path.empty()) {
-        std::cerr << "Error: key file path (-k) is required\n";
+    if (key_path.empty() && hex_key.empty()) {
+        std::cerr << "Error: key must be provided with -k or -x\n";
+        return 2;
+    }
+    if (!key_path.empty() && !hex_key.empty()) {
+        std::cerr << "Error: specify only one of -k or -x\n";
         return 2;
     }
     if (in_path.empty()) {
@@ -73,12 +101,19 @@ int main(int argc, char **argv) {
     }
 
     try {
-        // read key file
-        std::ifstream kf(key_path, std::ios::binary);
-        if (!kf) { std::cerr << "Error: cannot open key file: " << key_path << "\n"; return 3; }
-        std::vector<uint8_t> key((std::istreambuf_iterator<char>(kf)), std::istreambuf_iterator<char>());
-        kf.close();
-        if (key.empty()) { std::cerr << "Error: key file is empty\n"; return 4; }
+        std::vector<uint8_t> key;
+        if (!hex_key.empty()) {
+            if (!hex_to_bytes(hex_key, key)) {
+                std::cerr << "Error: invalid hex key string\n";
+                return 2;
+            }
+        } else {
+            std::ifstream kf(key_path, std::ios::binary);
+            if (!kf) { std::cerr << "Error: cannot open key file: " << key_path << "\n"; return 3; }
+            key.assign(std::istreambuf_iterator<char>(kf), std::istreambuf_iterator<char>());
+            kf.close();
+        }
+        if (key.empty()) { std::cerr << "Error: key is empty\n"; return 4; }
 
         // open input
         std::ifstream inf(in_path, std::ios::binary);

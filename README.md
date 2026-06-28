@@ -59,6 +59,7 @@ g++ -std=c++17 Lock.cpp -O2 -o lock.exe
 ```text
 lock -v                            # 显示版本
 lock -k keyfile -i infile          # 使用 keyfile 对 infile 进行异或处理，输出到同目录下的 out_infile
+lock -x a1b2c3d4 -i infile          # 使用十六进制钥匙对 infile 进行异或处理
 lock -k keyfile -i infile -o out   # 指定输出文件
 lock -k keyfile -i infile -m 512   # 每次读取 512 KB 块进行处理（默认 1024 KB）
 lock -k keyfile -i infile -f       # 强制覆盖输出文件
@@ -66,12 +67,13 @@ lock -k keyfile -i infile -p       # 处理时显示进度
 ```
 
 行为说明：
-- 使用 `-k` 指定钥匙文件，钥匙内容按字节循环用于对输入文件进行异或处理。
+- 使用 `-k` 指定钥匙文件，或使用 `-x` 指定十六进制钥匙字符串。
+- `-x` 的十六进制字符串长度必须为偶数，支持混写大小写 `0-9 a-f A-F`。
 - 如果 `-o` 缺失，输出文件将放在与输入文件相同目录，文件名加前缀 `out_`。
 - `-f` 强制覆盖输出文件，无需确认。
 - `-p` 显示处理进度。
 - `-m` 指定每次处理的块大小，单位 KB，默认 `1024`（即 1 MiB）。
-- 输入文件或钥匙文件为空时会报错并退出。
+- 输入文件或钥匙文件/钥匙串为空时会报错并退出。
 
 示例：
 
