@@ -3,16 +3,19 @@
 #include <string>
 #include <vector>
 #include <filesystem>
+#include <cctype>
 #include <cstdint>
 
 static const char *VERSION = "1.0.0";
 
 void print_usage(const char *prog) {
-    std::cout << "Usage: " << prog << " -k key_path -i input_file [-o output_file] [-v] [-m block_kb]\n";
+    std::cout << "Usage: " << prog << " -k key_path -i input_file [-o output_file] [-v] [-f] [-p] [-m block_kb]\n";
     std::cout << "  -v            Show version and exit\n";
     std::cout << "  -k <path>     Key file path\n";
     std::cout << "  -i <path>     Input file to encrypt/decrypt\n";
     std::cout << "  -o <path>     Output file path (default: same directory, prefix out_)\n";
+    std::cout << "  -f            Force overwrite output file if it exists\n";
+    std::cout << "  -p            Show progress while processing\n";
     std::cout << "  -m <KB>       Block size in KB for processing (default 1024 KB)\n";
 }
 
@@ -22,11 +25,17 @@ int main(int argc, char **argv) {
     std::string out_path;
     size_t block_kb = 1024;
     bool show_version = false;
+    bool force_overwrite = false;
+    bool show_progress = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "-v") {
             show_version = true;
+        } else if (a == "-f") {
+            force_overwrite = true;
+        } else if (a == "-p") {
+            show_progress = true;
         } else if (a == "-k") {
             if (i + 1 >= argc) { std::cerr << "Error: -k requires a path\n"; return 2; }
             key_path = argv[++i];
@@ -83,6 +92,20 @@ int main(int argc, char **argv) {
             out_path = (dir / (std::string("out_") + name)).string();
         }
 
+        if (std::filesystem::exists(out_path) && !force_overwrite) {
+            std::cout << "Output file exists: " << out_path << ". Overwrite? Type 'yes' or 'on' to confirm [no]: ";
+            std::string ans;
+            if (!std::getline(std::cin, ans)) {
+                std::cerr << "No input, aborting.\n";
+                return 6;
+            }
+            for (char &c : ans) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (!(ans == "yes" || ans == "on")) {
+                std::cerr << "Aborted: not overwriting.\n";
+                return 6;
+            }
+        }
+
         std::ofstream outf(out_path, std::ios::binary | std::ios::trunc);
         if (!outf) { std::cerr << "Error: cannot open output file: " << out_path << "\n"; return 3; }
 
@@ -93,6 +116,7 @@ int main(int argc, char **argv) {
         size_t key_len = key.size();
         size_t key_pos = 0;
 
+        uint64_t processed = 0;
         while (inf) {
             inf.read(reinterpret_cast<char *>(buf.data()), static_cast<std::streamsize>(BUF_SIZE));
             std::streamsize got = inf.gcount();
@@ -103,6 +127,10 @@ int main(int argc, char **argv) {
             }
             outf.write(reinterpret_cast<const char *>(buf.data()), got);
             if (!outf) { std::cerr << "Error: write failed\n"; return 5; }
+            if (show_progress) {
+                processed += static_cast<uint64_t>(got);
+                std::cout << "\rProcessed " << processed << " bytes" << std::flush;
+            }
         }
 
         inf.close();
