@@ -29,3 +29,47 @@ randomkey -s 4096 -o out.bin # 生成 4096 字节到 out.bin
 - `-h` 显示帮助
 - `-o` 输出路径，默认 `random.bin`
 - `-s` 要生成的大小（字节），必需且为正整数
+
+---
+
+# Lock
+
+对文件进行基于钥匙的循环异或加密/解密工具。
+
+## 构建
+
+在支持 C++17 的编译器上编译：
+
+```bash
+g++ -std=c++17 Lock.cpp -O2 -o lock
+```
+
+Windows:
+
+```powershell
+g++ -std=c++17 Lock.cpp -O2 -o lock.exe
+```
+
+## 用法
+
+```text
+lock -v                            # 显示版本
+lock -k keyfile -i infile          # 使用 keyfile 对 infile 进行异或处理，输出到同目录下的 out_infile
+lock -k keyfile -i infile -o out   # 指定输出文件
+lock -k keyfile -i infile -m 512   # 每次读取 512 KB 块进行处理（默认 1024 KB）
+```
+
+行为说明：
+- 使用 `-k` 指定钥匙文件，钥匙内容按字节循环用于对输入文件进行异或处理。
+- 如果 `-o` 缺失，输出文件将放在与输入文件相同目录，文件名加前缀 `out_`。
+- `-m` 指定每次处理的块大小，单位 KB，默认 `1024`（即 1 MiB）。
+- 输入文件或钥匙文件为空时会报错并退出。
+
+示例：
+
+```bash
+./lock -k 1.key -i random.bin            # 使用 1.key 对 random.bin 加密，输出 out_random.bin
+./lock -k 1.key -i random.bin -o enc.bin # 输出到 enc.bin
+./lock -k 1.key -i enc.bin -o dec.bin    # 再次相同操作可解密回原文
+```
+
