@@ -6,6 +6,8 @@
 #include <filesystem>
 #include <cctype>
 #include <cstdint>
+#include <cstdlib>
+#include <stdexcept>
 
 static const char *VERSION = "1.0.0";
 
@@ -41,6 +43,72 @@ void print_usage(const char *prog) {
 	std::cout << "  -o <path>     Output file path (default: random.bin)\n";
 	std::cout << "  -s <size>     Output size in bytes, support K/M/G suffixes\n";
 }
+
+#if defined(__linux__)
+static void fill_random_bytes(uint8_t *ptr, size_t len) {
+    std::ifstream urandom("/dev/urandom", std::ios::binary);
+    if (!urandom) {
+        throw std::runtime_error("cannot open /dev/urandom");
+    }
+
+    urandom.read(reinterpret_cast<char *>(ptr), static_cast<std::streamsize>(len));
+    if (urandom.gcount() != static_cast<std::streamsize>(len)) {
+        throw std::runtime_error("failed to read enough bytes from /dev/urandom");
+    }
+}
+#elif defined(__FreeBSD__)
+static void fill_random_bytes(uint8_t *ptr, size_t len) {
+    arc4random_buf(ptr, len);
+}
+#elif defined(__APPLE__)
+#include <Security/SecRandom.h>
+
+static void fill_random_bytes(uint8_t *ptr, size_t len) {
+    if (SecRandomCopyBytes(kSecRandomDefault, len, ptr) != errSecSuccess) {
+        throw std::runtime_error("failed to generate random bytes on macOS");
+    }
+}
+#elif defined(_WIN32)
+#include <windows.h>
+#include <bcrypt.h>
+
+static void fill_random_bytes(uint8_t *ptr, size_t len) {
+    NTSTATUS status = BCryptGenRandom(
+        NULL,
+        ptr,
+        static_cast<ULONG>(len),
+        BCRYPT_USE_SYSTEM_PREFERRED_RNG
+    );
+
+    if (status != 0) {
+        throw std::runtime_error("failed to generate random bytes on Windows");
+    }
+}
+#else
+static void fill_random_bytes(uint8_t *ptr, size_t len) {
+    static std::random_device rd;
+    static std::mt19937_64 gen(rd());
+    static std::uniform_int_distribution<uint32_t> dist(0, 0xFFFFFFFFu);
+
+    size_t written = 0;
+    while (written + 4 <= len) {
+        uint32_t v = dist(gen);
+        ptr[written + 0] = static_cast<uint8_t>(v & 0xFF);
+        ptr[written + 1] = static_cast<uint8_t>((v >> 8) & 0xFF);
+        ptr[written + 2] = static_cast<uint8_t>((v >> 16) & 0xFF);
+        ptr[written + 3] = static_cast<uint8_t>((v >> 24) & 0xFF);
+        written += 4;
+    }
+
+    if (written < len) {
+        uint32_t v = dist(gen);
+        for (size_t j = written; j < len; ++j) {
+            ptr[j] = static_cast<uint8_t>(v & 0xFF);
+            v >>= 8;
+        }
+    }
+}
+#endif
 
 int main(int argc, char **argv) {
 	std::string out_path = "random.bin";
@@ -123,35 +191,12 @@ int main(int argc, char **argv) {
 		}
 
 		const size_t BUF_SIZE = 64u * 1024u; // 64 KiB buffer
-		std::vector<uint8_t> buf;
-		buf.resize(BUF_SIZE);
-
-		std::random_device rd;
-		std::mt19937_64 gen(rd());
-		std::uniform_int_distribution<uint32_t> dist(0, 0xFFFFFFFFu);
+		std::vector<uint8_t> buf(BUF_SIZE);
 
 		uint64_t remaining = size;
 		while (remaining > 0) {
 			size_t to_write = static_cast<size_t>(std::min<uint64_t>(BUF_SIZE, remaining));
-			// fill buffer with random bytes 4 bytes at a time
-			uint8_t *ptr = buf.data();
-			size_t written = 0;
-			while (written + 4 <= to_write) {
-				uint32_t v = dist(gen);
-				ptr[written + 0] = static_cast<uint8_t>(v & 0xFF);
-				ptr[written + 1] = static_cast<uint8_t>((v >> 8) & 0xFF);
-				ptr[written + 2] = static_cast<uint8_t>((v >> 16) & 0xFF);
-				ptr[written + 3] = static_cast<uint8_t>((v >> 24) & 0xFF);
-				written += 4;
-			}
-			// remaining bytes
-			if (written < to_write) {
-				uint32_t v = dist(gen);
-				for (size_t j = written; j < to_write; ++j) {
-					ptr[j] = static_cast<uint8_t>(v & 0xFF);
-					v >>= 8;
-				}
-			}
+			fill_random_bytes(buf.data(), to_write);
 
 			ofs.write(reinterpret_cast<const char *>(buf.data()), to_write);
 			if (!ofs) {
